@@ -21,6 +21,12 @@ for = flip map
 mapSnd f (a,b) = (a, f b)
 f `refApply` a = f a a
 
+untilFix :: Eq a => (a -> a) -> a -> a
+untilFix f a =
+  if a == f a
+     then a
+     else untilFix f (f a)
+
 maybeRead :: Read a => String -> Maybe a
 maybeRead = fmap fst . listToMaybe . reads
 
@@ -74,8 +80,8 @@ main = do
              resp   -> putStrLn (show resp) >> go code (tries+1)
 
 -- Solver
-type Knowledge   = Map.Map Peg [Int]
-type GuessInfo   = [Knowledge]
+type Possibility = Map.Map Peg [Int]
+type Knowledge   = [Possibility]
 
 data RespType = BlackR | WhiteR
      deriving (Show)
@@ -83,28 +89,28 @@ data RespType = BlackR | WhiteR
 mkRespType :: Response -> [RespType]
 mkRespType (b,w) = replicate b BlackR ++ replicate w WhiteR
 
-generateGuess :: Knowledge -> Peg -> Code
+generateGuess :: Possibility -> Peg -> Code
 generateGuess kns c =
   let codeInit          = replicate 4 Nothing :: [Maybe Peg]
-      codeWithKnowledge = Map.foldlWithKey updateFromKnowledge codeInit kns
-  in map (fromMaybe c) codeWithKnowledge where
+      codeWithPossibility = Map.foldlWithKey updateFromPossibility codeInit kns
+  in map (fromMaybe c) codeWithPossibility where
 
-    updateFromKnowledge ::  [Maybe Peg] -> Peg -> [Int] -> [Maybe Peg]
-    updateFromKnowledge code p [] = code
-    updateFromKnowledge code p (l:ls) =
+    updateFromPossibility ::  [Maybe Peg] -> Peg -> [Int] -> [Maybe Peg]
+    updateFromPossibility code p [] = code
+    updateFromPossibility code p (l:ls) =
         if isJust (code !! l)
-           then updateFromKnowledge code p ls
+           then updateFromPossibility code p ls
            else replaceAtIndex l (Just p) code
 
-compactCode :: Code -> Map.Map Peg [Int]
+compactCode :: Code -> Possibility
 compactCode c = Map.fromList $ map (\p -> (p, findIndices (== p) c)) (nub c)
 
 uniformRespType :: RespType -> [Int] -> [Int]
 uniformRespType BlackR = id
 uniformRespType WhiteR = ([0..3] \\)
 
-mkGuessInfo :: Code -> Response -> GuessInfo
-mkGuessInfo guess resp =
+mkKnowledge :: Code -> Response -> Knowledge
+mkKnowledge guess resp =
   let guessPerms = permutations . Map.toList . compactCode $ guess
       resp'      = mkRespType resp
       guessPermsUniform :: [[(Peg, [Int])]]
@@ -115,38 +121,61 @@ mkGuessInfo guess resp =
 pegPositionConflict :: (Peg,[Int]) -> (Peg,[Int]) -> Bool
 pegPositionConflict (p1,ls1) (p2,ls2) = p1 /= p2 && map2' length (ls1, ls2) == (1,1) && head ls1 == head ls2
 
-knowledgePositioinConflict :: Knowledge -> Knowledge -> Bool
-knowledgePositioinConflict kw1 kw2 =
+possibilityPositionConflict :: Possibility -> Possibility -> Bool
+possibilityPositionConflict pos1 pos2 =
   Map.foldlWithKey (\b  p  ls  ->
   Map.foldlWithKey (\b' p' ls' ->
     b' || pegPositionConflict (p,ls) (p',ls'))
-  b kw2) False kw1
+  b pos2) False pos1
 
-internalContradiction :: Knowledge -> Bool
-internalContradiction ks =
-  or [ knowledgePositioinConflict `refApply` ks ] where
+internalContradiction :: Possibility -> Bool
+internalContradiction pos =
+  or [ possibilityPositionConflict `refApply` pos , presentEmpty] where
 
--- does the second knowledge contradict the first?
-contradictedBy :: Knowledge -> Knowledge -> Bool
-kw1 `contradictedBy` kw2 = or [notPresentIn2 , positionConflict , noOverlap] where
+    -- a peg is present but has no possible locations
+    presentEmpty = Map.foldl (\b ls -> b || null ls) False pos
+
+-- does the second possibility contradict the first?
+contradictedBy :: Possibility -> Possibility -> Bool
+pos1 `contradictedBy` pos2 = or [notPresentIn2 , positionConflict , noOverlap] where
   -- contradiction because the second does not mention
   -- a peice that exists in the first
-  notPresentIn2 = Map.foldlWithKey (\b p _ ->  b || p `Map.notMember` kw2) False kw1
+  notPresentIn2 = Map.foldlWithKey (\b p _ ->  b || p `Map.notMember` pos2) False pos1
 
   -- contradiction because kw1 fully knows where one peg is but
   -- kw2 fully knows another peg, at the same location!
-  positionConflict = knowledgePositioinConflict kw1 kw2
+  positionConflict = possibilityPositionConflict pos1 pos2
 
   noOverlap =
     Map.foldlWithKey
       (\b p ls -> b ||
-        maybe True (null . intersect ls) (Map.lookup p kw2)) False kw1
+        maybe True (null . intersect ls) (Map.lookup p pos2)) False pos1
 
-newKnowledge :: Knowledge -> GuessInfo -> Knowledge
-newKnowledge kw gi =
-  let giPruned = filter (not . \kw' -> internalContradiction kw' || kw `contradictedBy` kw') gi
-  in Map.map sort $ Map.unionWith intersect kw (Map.unionsWith union giPruned)
 
+newKnowledge :: Possibility -> Knowledge -> Knowledge
+newKnowledge pos kw =
+  let kwPruned = filter (not . \pos' -> internalContradiction pos' || pos `contradictedBy` pos') . map (untilFix handleCertainPegs) $ kw
+  in map (Map.map sort . (untilFix handleCertainPegs) . Map.unionWith intersect pos) kwPruned where
+
+    -- if we have pegs whose positions are known, remove
+    -- that position from the possible positions of other pegs
+    handleCertainPegs :: Possibility -> Possibility
+    handleCertainPegs pos' =
+      let certains = Map.filter ((== 1) . length) pos'
+      in Map.mapWithKey
+           (\p ls ->
+             Map.foldlWithKey
+               (\accum p' ls' -> if p' == p
+                                    then accum
+                                    else accum \\ ls') ls certains) pos'
+
+data Mastermind = Mastermind
+  { current   :: Peg
+  , knowledge :: Knowledge
+  , tries     :: Int
+  , code      :: Code
+  , finished  :: Bool
+  } deriving Show
 
 debugRun :: IO ()
 debugRun = undefined
