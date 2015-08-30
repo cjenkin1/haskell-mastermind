@@ -20,6 +20,10 @@ arg2 a b = b
 for = flip map
 mapSnd f (a,b) = (a, f b)
 f `refApply` a = f a a
+succS :: (Enum a, Bounded a, Eq a) => a -> a
+succS e
+  | e == maxBound = e
+  | otherwise     = succ e
 
 untilFix :: Eq a => (a -> a) -> a -> a
 untilFix f a =
@@ -152,8 +156,8 @@ pos1 `contradictedBy` pos2 = or [notPresentIn2 , positionConflict , noOverlap] w
         maybe True (null . intersect ls) (Map.lookup p pos2)) False pos1
 
 
-newKnowledge :: Possibility -> Knowledge -> Knowledge
-newKnowledge pos kw =
+newKnowledge :: Knowledge -> Possibility -> Knowledge
+newKnowledge kw pos =
   let kwPruned = filter (not . \pos' -> internalContradiction pos' || pos `contradictedBy` pos') . map (untilFix handleCertainPegs) $ kw
   in map (Map.map sort . (untilFix handleCertainPegs) . Map.unionWith intersect pos) kwPruned where
 
@@ -178,4 +182,29 @@ data Mastermind = Mastermind
   } deriving Show
 
 debugRun :: IO ()
-debugRun = undefined
+debugRun = do
+  cmd <- putStr "[new] or [set] code: " >> getLine
+  cd <- case cmd of
+    "new" -> genCodeIO
+    "set" -> readLn
+  go $ Mastermind {code = cd, current = minBound, knowledge = [Map.empty], tries = 1, finished = False}
+  return () where
+
+  go :: Mastermind -> IO ()
+  go ms = do
+    print ms
+    let Mastermind {current = c, knowledge = kw, code = cd} = ms
+    let pos = head kw
+    let guess = generateGuess pos c
+    putStr "Guess: " >> print guess >> getLine
+
+    let resp = checkGuess cd guess
+    putStr "Response: " >> print resp >> getLine
+    unless (resp == (4 , 0)) $ do
+      let kwg = mkKnowledge guess resp
+      putStr "Knowledge from guess: " >> print kwg >> getLine
+
+      let kwn = concatMap (newKnowledge kwg) kw
+      putStr "New Knowledge: " >> print kwn >> getLine
+
+      go ms {tries = tries ms + 1, knowledge = kwn, current = succS c}
