@@ -95,17 +95,21 @@ mkRespType :: Response -> [RespType]
 mkRespType (b,w) = replicate b BlackR ++ replicate w WhiteR
 
 generateGuess :: Possibility -> Peg -> Code
-generateGuess kns c =
+generateGuess pos c =
   let codeInit          = replicate 4 Nothing :: [Maybe Peg]
-      codeWithPossibility = Map.foldlWithKey updateFromPossibility codeInit kns
-  in map (fromMaybe c) codeWithPossibility where
+  in fillWith c . fromJust . find goodGuess . allGuesses $ codeInit where
 
-    updateFromPossibility ::  [Maybe Peg] -> Peg -> [Int] -> [Maybe Peg]
-    updateFromPossibility code p [] = code
-    updateFromPossibility code p (l:ls) =
-        if isJust (code !! l)
-           then updateFromPossibility code p ls
-           else replaceAtIndex l (Just p) code
+    fillWith c' = map (fromMaybe c')
+
+    goodGuess :: [Maybe Peg] -> Bool
+    goodGuess mCd = length (catMaybes mCd) == length (Map.keys pos)
+
+    -- I'm sorry for writing this...
+    allGuesses :: [Maybe Peg] -> [[Maybe Peg]]
+    allGuesses ci =
+      Map.foldlWithKey (\accum p ls ->
+        concatMap (\guess -> map (\l -> replaceAtIndex l (Just p) guess) ls) accum
+      ) [ci] pos
 
 compactCode :: Code -> Possibility
 compactCode c = Map.fromList $ map (\p -> (p, findIndices (== p) c)) (nub c)
