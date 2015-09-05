@@ -1,12 +1,13 @@
 module Main where
 
 import Data.List
-import Data.Maybe (listToMaybe, isJust, fromMaybe)
+import Data.Maybe (listToMaybe, isJust, fromMaybe, fromJust , catMaybes)
 import System.IO (hFlush, stdout)
 import Control.Monad.Random
 import System.Random.Shuffle
 import qualified Data.Map as Map
 import Control.Monad
+import System.IO
 
 -- utility functions
 map2 f g (a,b) = (f a, g b)
@@ -71,17 +72,17 @@ getGuessRetry = do
          (Just c) | (length c) /= 4 -> putStrLn "Guesses must be 4 pegs" >> getGuessRetry
                   | otherwise       ->                                      return c
 
-main = do
-     print allPegs
-     code <- genCodeIO
-     -- print code
-     go code 0  where
+-- main = do
+--      print allPegs
+--      code <- genCodeIO
+--      -- print code
+--      go code 0  where
 
-     go code tries = do
-        guess <- getGuessRetry
-        case (checkGuess code guess) of
-             (4, 0) -> putStrLn $ "You won in " ++ (show tries) ++ " tries!"
-             resp   -> putStrLn (show resp) >> go code (tries+1)
+--      go code tries = do
+--         guess <- getGuessRetry
+--         case (checkGuess code guess) of
+--              (4, 0) -> putStrLn $ "You won in " ++ (show tries) ++ " tries!"
+--              resp   -> putStrLn (show resp) >> go code (tries+1)
 
 -- Solver
 type Possibility = Map.Map Peg [Int]
@@ -178,16 +179,16 @@ data Mastermind = Mastermind
   , knowledge :: Knowledge
   , tries     :: Int
   , code      :: Code
-  , finished  :: Bool
   } deriving Show
 
-debugRun :: IO ()
-debugRun = do
+main :: IO ()
+main = do
+  hSetBuffering stdout NoBuffering
   cmd <- putStr "[new] or [set] code: " >> getLine
   cd <- case cmd of
-    "new" -> genCodeIO
     "set" -> readLn
-  go $ Mastermind {code = cd, current = minBound, knowledge = [Map.empty], tries = 1, finished = False}
+    _     -> genCodeIO
+  go $ Mastermind {code = cd, current = minBound, knowledge = [Map.empty], tries = 1}
   return () where
 
   go :: Mastermind -> IO ()
