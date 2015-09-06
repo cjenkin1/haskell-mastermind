@@ -1,8 +1,12 @@
 module Main where
 
 import System.IO (hFlush, stdout)
+import Data.Maybe (listToMaybe)
 
 import Mastermind
+
+maybeRead :: Read a => String -> Maybe a
+maybeRead = fmap fst . listToMaybe . reads
 
 getGuessRetry :: IO Code
 getGuessRetry = do

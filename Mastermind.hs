@@ -1,26 +1,22 @@
 module Mastermind where
 
 import Data.List
-import Data.Maybe (listToMaybe)
 import Control.Monad.Random (getStdGen , RandomGen)
 import System.Random.Shuffle (shuffle')
 
 -- utility functions
+map2 :: (a -> b) -> (c -> d) -> (a,c) -> (b,d)
 map2 f g (a,b) = (f a, g b)
+
+map2' :: (a -> b) -> (a,a) -> (b,b)
 map2' f = map2 f f
+
+fork :: (a -> b) -> (b -> c -> d) -> (a -> c) -> (a -> d)
 fork g h f a = (g a) `h` (f a)
-fork2 g h f a b = (g a b) `h` (f a b)
-fork2' g h f a b = (g a) `h` (f b)
-arg1 a b = a
-arg2 a b = b
-(...) f g a b = f (g a b)
-for = flip map
-mapSnd f (a,b) = (a, f b)
 
-maybeRead :: Read a => String -> Maybe a
-maybeRead = fmap fst . listToMaybe . reads
-
-replaceAtIndex n item ls = a ++ (item:b) where (a, (_:b)) = splitAt n ls
+-- APL inspired partition
+partitionAPL :: [Bool] -> [a] -> ([a],[a])
+partitionAPL cs xs = map2' (map snd) . partition fst $ zip cs xs
 
 -- Pegs
 data Peg = White | Black | Yellow | Orange | Red | Blue | Green | Brown
@@ -34,10 +30,19 @@ allPegs = enumFrom minBound
 
 -- Mastermind logic
 checkGuess :: Code -> Code -> Response
-checkGuess code guess =
-           let (black, notBlack) = map2' (map snd) . partition (uncurry (==)) $ zip code guess
-               white = filter (fork (`elem` code) (&&) (`notElem` black)) (nub notBlack)
-           in map2' length (black, white)
+checkGuess code guess = (length black , length white) where
+
+  -- partition pegs in the guess by those which where the right color *and* the right position
+  blackAnalysis :: ([Peg] , [Peg])
+  blackAnalysis = partitionAPL (zipWith (==) code guess) guess
+
+  black = fst blackAnalysis
+
+  -- for the rest, find out which are the 'white' pegs
+  -- (those pegs in the code but not in the right position)
+  notBlack = nub (snd blackAnalysis)
+
+  white = filter (fork (`elem` code) (&&) (`notElem` black)) notBlack
 
 genCode :: RandomGen gen => gen -> Code
 genCode g = take 4 . shuffle' allPegs (length allPegs) $ g
